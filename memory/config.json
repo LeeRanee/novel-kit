@@ -1,0 +1,65 @@
+{
+  "version": "1.0",
+  "last_updated": "2025-01-15T00:00:00Z",
+  
+  "current_writer": {
+    "id": null,
+    "name": null,
+    "profile_path": null,
+    "activated_at": null,
+    "activated_by": null
+  },
+  
+  "current_chapter": {
+    "id": null,
+    "title": null,
+    "number": null,
+    "file_path": null,
+    "word_count": 0,
+    "status": "draft",
+    "created_at": null,
+    "last_modified": null
+  },
+  
+  "novel": {
+    "title": null,
+    "total_chapters": 0,
+    "total_words": 0,
+    "status": "draft",
+    "created_at": null,
+    "last_modified": null
+  },
+  
+  "session": {
+    "last_action": null,
+    "last_action_time": null,
+    "last_action_command": null,
+    "last_modified_file": null,
+    "action_context": null
+  },
+  
+  "statistics": {
+    "writers_created": 0,
+    "writers_switched": 0,
+    "chapters_created": 0,
+    "chapters_completed": 0,
+    "total_writing_sessions": 0
+  },
+  
+  "history": {
+    "writer_switches": [],
+    "chapter_creations": [],
+    "recent_actions": []
+  },
+  
+  "constitution": {
+    "version": "1.0",
+    "created_at": null,
+    "last_updated": null,
+    "file_path": ".novelkit/memory/constitution.md",
+    "checks_enabled": true,
+    "last_check": null,
+    "violations_count": 0
+  }
+}
+

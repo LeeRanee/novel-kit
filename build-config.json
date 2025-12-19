@@ -1,0 +1,4 @@
+{
+  "supported_ais": ["cursor"],
+  "supported_platforms": ["linux", "win"]
+}
