@@ -14,6 +14,7 @@ import shutil
 import platform
 import zipfile
 import tempfile
+import subprocess
 from pathlib import Path
 from typing import Optional, Dict
 
@@ -307,6 +308,99 @@ def select_with_arrows(
     return selected_key
 
 
+def build_locally(ai_env: str, platform: str, verbose: bool = False) -> Optional[Path]:
+    """
+    本地构建 NovelKit 包
+    
+    Args:
+        ai_env: AI 环境名称
+        platform: 平台名称（linux/win）
+        verbose: 是否显示详细信息
+    
+    Returns:
+        构建产物目录路径，如果失败返回 None
+    """
+    console.print(f"[cyan]正在本地构建 {ai_env}-{platform} 包...[/cyan]")
+    
+    # 查找 build_novelkit.py 脚本
+    # 方法1: 从源码目录查找
+    current_file = Path(__file__).resolve()
+    repo_root = current_file.parent.parent.parent
+    build_script = repo_root / "build_novelkit.py"
+    
+    # 方法2: 从当前工作目录查找
+    if not build_script.exists():
+        build_script = Path.cwd() / "build_novelkit.py"
+    
+    # 方法3: 从环境变量指定的路径查找
+    if not build_script.exists():
+        build_path = os.getenv("NOVELKIT_BUILD_SCRIPT")
+        if build_path:
+            build_script = Path(build_path)
+    
+    if not build_script.exists():
+        console.print("[red]错误:[/red] 找不到 build_novelkit.py 脚本")
+        console.print("[yellow]提示:[/yellow] 请确保在 NovelKit 源码目录中运行，或设置 NOVELKIT_BUILD_SCRIPT 环境变量")
+        return None
+    
+    try:
+        # 运行构建脚本
+        cmd = [sys.executable, str(build_script), ai_env, platform]
+        if verbose:
+            console.print(f"[dim]执行命令:[/dim] {' '.join(cmd)}")
+        
+        result = subprocess.run(
+            cmd,
+            cwd=build_script.parent,
+            capture_output=True,
+            text=True,
+            timeout=300  # 5分钟超时
+        )
+        
+        if result.returncode != 0:
+            console.print(f"[red]构建失败:[/red] 退出码 {result.returncode}")
+            if result.stderr:
+                console.print(f"[red]错误输出:[/red]")
+                console.print(result.stderr)
+            if result.stdout:
+                console.print(f"[yellow]标准输出:[/yellow]")
+                console.print(result.stdout)
+            return None
+        
+        # 查找构建产物
+        dist_dir = build_script.parent / "dist" / f"{ai_env}-{platform}"
+        
+        if dist_dir.exists():
+            console.print(f"[green]构建成功:[/green] {dist_dir}")
+            if verbose and result.stdout:
+                console.print(f"[dim]构建输出:[/dim]")
+                console.print(result.stdout)
+            return dist_dir
+        else:
+            console.print(f"[red]构建失败:[/red] 未找到构建产物目录 {dist_dir}")
+            if result.stdout:
+                console.print(f"[yellow]构建输出:[/yellow]")
+                console.print(result.stdout)
+            return None
+            
+    except subprocess.TimeoutExpired:
+        console.print("[red]构建超时:[/red] 构建过程超过 5 分钟")
+        console.print("[yellow]提示:[/yellow] 构建可能需要更长时间，请手动运行构建脚本")
+        return None
+    except FileNotFoundError:
+        console.print("[red]错误:[/red] 找不到 Python 解释器")
+        console.print(f"[yellow]提示:[/yellow] Python 路径: {sys.executable}")
+        return None
+    except Exception as e:
+        console.print(f"[red]构建异常:[/red] {type(e).__name__}: {e}")
+        console.print(f"[dim]详细信息:[/dim] {str(e)}")
+        import traceback
+        if verbose:
+            console.print("[dim]堆栈跟踪:[/dim]")
+            console.print(traceback.format_exc())
+        return None
+
+
 def find_package_dist_dir(ai_env: str = "cursor") -> Optional[Path]:
     """
     查找构建产物目录。
@@ -352,7 +446,7 @@ def find_package_dist_dir(ai_env: str = "cursor") -> Optional[Path]:
     return None
 
 
-def download_from_remote(ai_env: str, platform: str, github_token: Optional[str] = None) -> Optional[Path]:
+def download_from_remote(ai_env: str, platform: str, github_token: Optional[str] = None, verbose: bool = False) -> Optional[Path]:
     """
     从远程仓库下载构建产物
     
@@ -397,8 +491,22 @@ def download_from_remote(ai_env: str, platform: str, github_token: Optional[str]
             
             if response.status_code == 403:
                 rate_limit_info = response.headers.get("X-RateLimit-Remaining", "unknown")
+                rate_limit_reset = response.headers.get("X-RateLimit-Reset", "")
                 console.print(f"[red]错误:[/red] GitHub API 访问受限（剩余请求: {rate_limit_info}）")
-                console.print("[yellow]提示:[/yellow] 可以设置 GH_TOKEN 或 GITHUB_TOKEN 环境变量提高速率限制")
+                console.print("[yellow]解决方案:[/yellow]")
+                console.print("  1. 设置 GitHub token 提高速率限制:")
+                console.print("     [cyan]export GH_TOKEN=your_token[/cyan]")
+                console.print("     或")
+                console.print("     [cyan]export GITHUB_TOKEN=your_token[/cyan]")
+                console.print(f"  2. 手动下载: [cyan]{REPO_URL}/releases/latest[/cyan]")
+                console.print(f"     查找文件: [cyan]novel-kit-{ai_env}-{platform}-*.zip[/cyan]")
+                if rate_limit_reset:
+                    import datetime
+                    try:
+                        reset_time = datetime.datetime.fromtimestamp(int(rate_limit_reset))
+                        console.print(f"  3. 等待速率限制重置: [dim]{reset_time.strftime('%Y-%m-%d %H:%M:%S')}[/dim]")
+                    except:
+                        pass
                 return None
             
             if response.status_code != 200:
@@ -417,10 +525,11 @@ def download_from_remote(ai_env: str, platform: str, github_token: Optional[str]
             if not matching_assets:
                 console.print(f"[red]错误:[/red] 未找到匹配的构建产物（模式: {asset_pattern}*.zip）")
                 console.print(f"[yellow]可用资源:[/yellow]")
-                for asset in assets[:5]:  # 只显示前5个
+                for asset in assets[:10]:  # 显示前10个
                     console.print(f"  - {asset['name']}")
-                if len(assets) > 5:
-                    console.print(f"  ... 还有 {len(assets) - 5} 个资源")
+                if len(assets) > 10:
+                    console.print(f"  ... 还有 {len(assets) - 10} 个资源")
+                console.print(f"[yellow]提示:[/yellow] 请检查 AI 环境名称是否正确，或访问: [cyan]{REPO_URL}/releases/latest[/cyan]")
                 return None
             
             asset = matching_assets[0]
@@ -508,17 +617,59 @@ def download_from_remote(ai_env: str, platform: str, github_token: Optional[str]
             return extract_dir
             
     except httpx.HTTPError as e:
-        console.print(f"[red]网络错误:[/red] {e}")
+        console.print(f"[red]网络错误:[/red] {type(e).__name__}: {e}")
+        console.print(f"[dim]详细信息:[/dim] {str(e)}")
+        if hasattr(e, 'response') and e.response is not None:
+            console.print(f"[dim]HTTP 状态码:[/dim] {e.response.status_code}")
+        return None
+    except httpx.TimeoutException as e:
+        console.print(f"[red]请求超时:[/red] {type(e).__name__}: {e}")
+        console.print("[yellow]提示:[/yellow] 网络连接可能较慢，请稍后重试")
+        return None
+    except httpx.ConnectError as e:
+        console.print(f"[red]连接错误:[/red] {type(e).__name__}: {e}")
+        console.print("[yellow]提示:[/yellow] 无法连接到 GitHub，请检查网络连接")
         return None
     except zipfile.BadZipFile as e:
-        console.print(f"[red]ZIP 文件损坏:[/red] {e}")
+        console.print(f"[red]ZIP 文件损坏:[/red] {type(e).__name__}: {e}")
+        console.print(f"[dim]详细信息:[/dim] {str(e)}")
         if 'zip_path' in locals() and zip_path.exists():
+            console.print(f"[yellow]正在删除损坏的文件:[/yellow] {zip_path}")
             zip_path.unlink()
         return None
+    except PermissionError as e:
+        console.print(f"[red]权限错误:[/red] {type(e).__name__}: {e}")
+        console.print(f"[dim]详细信息:[/dim] {str(e)}")
+        console.print("[yellow]提示:[/yellow] 请检查文件/目录权限，或使用管理员权限运行")
+        return None
+    except OSError as e:
+        console.print(f"[red]系统错误:[/red] {type(e).__name__}: {e}")
+        console.print(f"[dim]详细信息:[/dim] {str(e)}")
+        if e.errno:
+            console.print(f"[dim]错误代码:[/dim] {e.errno}")
+        return None
     except Exception as e:
-        console.print(f"[red]下载失败:[/red] {e}")
+        console.print(f"[red]未知错误:[/red] {type(e).__name__}: {e}")
+        console.print(f"[dim]错误类型:[/dim] {type(e).__name__}")
+        console.print(f"[dim]错误消息:[/dim] {str(e)}")
+        import traceback
+        if verbose:
+            console.print("[dim]完整堆栈跟踪:[/dim]")
+            console.print(traceback.format_exc())
+        else:
+            # 即使不 verbose，也显示关键信息
+            import traceback
+            tb_lines = traceback.format_exc().split('\n')
+            console.print("[dim]关键错误信息:[/dim]")
+            for line in tb_lines[-5:]:  # 显示最后5行
+                if line.strip():
+                    console.print(f"[dim]{line}[/dim]")
         if 'zip_path' in locals() and zip_path.exists():
-            zip_path.unlink()
+            console.print(f"[yellow]正在清理临时文件:[/yellow] {zip_path}")
+            try:
+                zip_path.unlink()
+            except:
+                pass
         return None
 
 
@@ -712,20 +863,34 @@ def init(
     # 查找构建产物
     dist_dir = find_package_dist_dir(selected_ai)
     
-    # 如果本地找不到，尝试从远程下载
+    # 如果本地找不到，尝试多种方式获取
     if not dist_dir:
         console.print(f"[yellow]警告:[/yellow] 本地未找到 {selected_ai} 环境的构建产物")
-        console.print("[cyan]尝试从远程下载...[/cyan]")
         
-        # 检查是否有 GitHub token（从环境变量或参数获取）
-        github_token = os.getenv("GH_TOKEN") or os.getenv("GITHUB_TOKEN")
+        # 选项1: 尝试本地构建
+        console.print("[cyan]选项 1: 尝试本地构建...[/cyan]")
+        dist_dir = build_locally(selected_ai, PLATFORM, verbose=verbose)
         
-        dist_dir = download_from_remote(selected_ai, PLATFORM, github_token=github_token)
+        # 选项2: 如果本地构建失败，尝试从远程下载
+        if not dist_dir:
+            console.print("[cyan]选项 2: 尝试从 GitHub Release 下载...[/cyan]")
+            
+            # 检查是否有 GitHub token（从环境变量或参数获取）
+            github_token = os.getenv("GH_TOKEN") or os.getenv("GITHUB_TOKEN")
+            
+            if not github_token:
+                console.print("[dim]提示:[/dim] 未设置 GitHub token，API 请求可能受限")
+                console.print("[dim]设置 token 可提高速率限制: export GH_TOKEN=your_token[/dim]")
+            
+            dist_dir = download_from_remote(selected_ai, PLATFORM, github_token=github_token, verbose=verbose)
     
     if not dist_dir:
-        console.print("[red]错误:[/red] 找不到 NovelKit 构建产物")
-        console.print(f"[yellow]提示:[/yellow] 请先运行: [cyan]python build_novelkit.py {selected_ai} {PLATFORM}[/cyan]")
-        console.print("[dim]或等待远程下载功能实现[/dim]")
+        console.print("[red]错误:[/red] 无法获取 NovelKit 构建产物")
+        console.print("[yellow]解决方案:[/yellow]")
+        console.print(f"  1. 本地构建: [cyan]python build_novelkit.py {selected_ai} {PLATFORM}[/cyan]")
+        console.print(f"  2. 手动下载: [cyan]{REPO_URL}/releases/latest[/cyan]")
+        console.print(f"     查找文件: [cyan]novel-kit-{selected_ai}-{PLATFORM}-*.zip[/cyan]")
+        console.print(f"  3. 设置 GitHub token: [cyan]export GH_TOKEN=your_token[/cyan]")
         raise typer.Exit(1)
     
     if verbose:
