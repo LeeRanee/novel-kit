@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "mcp__gemini__gemini",
+      "mcp__codex__codex",
+      "Bash(openspec validate:*)",
+      "Bash(openspec list:*)",
+      "Skill(superpowers:brainstorming)"
+    ]
+  }
+}
